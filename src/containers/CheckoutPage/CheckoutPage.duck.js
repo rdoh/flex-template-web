@@ -30,7 +30,7 @@ const initialState = {
   speculateTransactionInProgress: false,
   speculateTransactionError: null,
   speculatedTransaction: null,
-  enquiredTransaction: null,
+  transaction: null,
   initiateOrderError: null,
 };
 
@@ -64,7 +64,7 @@ export default function checkoutPageReducer(state = initialState, action = {}) {
     case INITIATE_ORDER_REQUEST:
       return { ...state, initiateOrderError: null };
     case INITIATE_ORDER_SUCCESS:
-      return state;
+      return { ...state, transaction: payload };
     case INITIATE_ORDER_ERROR:
       console.error(payload); // eslint-disable-line no-console
       return { ...state, initiateOrderError: payload };
@@ -84,9 +84,9 @@ export const setInitialValues = initialValues => ({
 
 const initiateOrderRequest = () => ({ type: INITIATE_ORDER_REQUEST });
 
-const initiateOrderSuccess = orderId => ({
+const initiateOrderSuccess = order => ({
   type: INITIATE_ORDER_SUCCESS,
-  payload: orderId,
+  payload: order,
 });
 
 const initiateOrderError = e => ({
@@ -146,7 +146,7 @@ export const initiateOrder = (orderParams, transactionId) => (dispatch, getState
   return createOrder(bodyParams)
     .then(response => {
       const order = response.data.data;
-      dispatch(initiateOrderSuccess(order.id));
+      dispatch(initiateOrderSuccess(order));
       dispatch(fetchCurrentUserHasOrdersSuccess(true));
       return order;
     })

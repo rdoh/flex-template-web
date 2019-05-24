@@ -28,6 +28,7 @@ import {
   transactionInitiateOrderStripeErrors,
 } from '../../util/errors';
 import { formatMoney } from '../../util/currency';
+import { TRANSITION_ENQUIRE } from '../../util/transaction';
 import {
   AvatarMedium,
   BookingBreakdown,
@@ -97,7 +98,7 @@ export class CheckoutPageComponent extends Component {
       bookingData,
       bookingDates,
       listing,
-      enquiredTransaction,
+      transaction,
       fetchSpeculatedTransaction,
       history,
     } = this.props;
@@ -110,12 +111,12 @@ export class CheckoutPageComponent extends Component {
     const hasDataInProps = !!(bookingData && bookingDates && listing) && hasNavigatedThroughLink;
     if (hasDataInProps) {
       // Store data only if data is passed through props and user has navigated through a link.
-      storeData(bookingData, bookingDates, listing, enquiredTransaction, STORAGE_KEY);
+      storeData(bookingData, bookingDates, listing, transaction, STORAGE_KEY);
     }
 
     // NOTE: stored data can be empty if user has already successfully completed transaction.
     const pageData = hasDataInProps
-      ? { bookingData, bookingDates, listing, enquiredTransaction }
+      ? { bookingData, bookingDates, listing, transaction }
       : storedData(STORAGE_KEY);
 
     const hasData =
@@ -164,10 +165,13 @@ export class CheckoutPageComponent extends Component {
         stripePaymentIntentClientSecret,
         stripePaymentIntentId,
       } = handlePaymentParams;
-      const transactionId = pageData.enquiredTransaction ? pageData.enquiredTransaction.id : null;
+      const hasEnquireTransaction =
+        pageData.transaction &&
+        pageData.transaction.attributes.lastTransition === TRANSITION_ENQUIRE;
+      const enquireTransactionId = hasEnquireTransaction ? pageData.transaction.id : null;
       return stripePaymentIntentClientSecret
         ? Promise.resolve({ stripePaymentIntentClientSecret, stripePaymentIntentId })
-        : onInitiateOrder(fnParams, transactionId);
+        : onInitiateOrder(fnParams, enquireTransactionId);
     };
 
     // Step 2: pay using Stripe SDK
@@ -195,6 +199,7 @@ export class CheckoutPageComponent extends Component {
       // fnParams should include { paymentIntent }
       const { message } = handlePaymentParams;
       const params = { ...fnParams, message };
+      // TODO this needs correct transaction too: handlePaymentParams.pageData.transaction
       return Promise.resolve(params); // onConfirmPayment(params, message);
     };
 
@@ -290,7 +295,7 @@ export class CheckoutPageComponent extends Component {
       scrollingDisabled,
       speculateTransactionInProgress,
       speculateTransactionError,
-      speculatedTransaction,
+      speculatedTransaction: speculatedTransactionMaybe,
       initiateOrderError,
       intl,
       params,
@@ -311,9 +316,10 @@ export class CheckoutPageComponent extends Component {
 
     const isLoading = !this.state.dataLoaded || speculateTransactionInProgress;
 
-    const { listing, bookingDates, enquiredTransaction } = this.state.pageData;
-    const currentTransaction = ensureTransaction(speculatedTransaction, {}, null);
-    const currentBooking = ensureBooking(currentTransaction.booking);
+    const { listing, bookingDates, transaction } = this.state.pageData;
+    const existingTransaction = ensureTransaction(transaction);
+    const speculatedTransaction = ensureTransaction(speculatedTransactionMaybe, {}, null);
+    const speculatedBooking = ensureBooking(speculatedTransaction.booking);
     const currentListing = ensureListing(listing);
     const currentAuthor = ensureUser(currentListing.author);
 
@@ -339,23 +345,23 @@ export class CheckoutPageComponent extends Component {
     if (shouldRedirect) {
       // eslint-disable-next-line no-console
       console.error('Missing or invalid data for checkout, redirecting back to listing page.', {
-        transaction: currentTransaction,
+        transaction: speculatedTransaction,
         bookingDates,
         listing,
       });
       return <NamedRedirect name="ListingPage" params={params} />;
     }
 
-    // Show breakdown only when transaction and booking are loaded
+    // Show breakdown only when speculated transaction and booking are loaded
     // (i.e. have an id)
     const breakdown =
-      currentTransaction.id && currentBooking.id ? (
+      speculatedTransaction.id && speculatedBooking.id ? (
         <BookingBreakdown
           className={css.bookingBreakdown}
           userRole="customer"
           unitType={config.bookingUnitType}
-          transaction={currentTransaction}
-          booking={currentBooking}
+          transaction={speculatedTransaction}
+          booking={speculatedBooking}
         />
       ) : null;
 
@@ -500,7 +506,9 @@ export class CheckoutPageComponent extends Component {
     const formattedPrice = formatMoney(intl, price);
     const detailsSubTitle = `${formattedPrice} ${intl.formatMessage({ id: unitTranslationKey })}`;
 
-    const showInitialMessageInput = !enquiredTransaction;
+    const showInitialMessageInput = !(
+      existingTransaction && existingTransaction.attributes.lastTransition === TRANSITION_ENQUIRE
+    );
 
     const pageProps = { title, scrollingDisabled };
 
@@ -617,7 +625,7 @@ CheckoutPageComponent.defaultProps = {
   bookingDates: null,
   speculateTransactionError: null,
   speculatedTransaction: null,
-  enquiredTransaction: null,
+  transaction: null,
   currentUser: null,
   paymentIntent: null,
 };
@@ -634,7 +642,7 @@ CheckoutPageComponent.propTypes = {
   speculateTransactionInProgress: bool.isRequired,
   speculateTransactionError: propTypes.error,
   speculatedTransaction: propTypes.transaction,
-  enquiredTransaction: propTypes.transaction,
+  transaction: propTypes.transaction,
   initiateOrderError: propTypes.error,
   currentUser: propTypes.currentUser,
   params: shape({
@@ -667,7 +675,7 @@ const mapStateToProps = state => {
     speculateTransactionInProgress,
     speculateTransactionError,
     speculatedTransaction,
-    enquiredTransaction,
+    transaction,
     initiateOrderError,
   } = state.CheckoutPage;
   const { currentUser } = state.user;
@@ -680,7 +688,7 @@ const mapStateToProps = state => {
     speculateTransactionInProgress,
     speculateTransactionError,
     speculatedTransaction,
-    enquiredTransaction,
+    transaction,
     listing,
     initiateOrderError,
     handleCardPaymentInProgress,
